@@ -274,6 +274,10 @@ const (
 	// in the Annotations of a Pod.
 	// TODO: remove when alpha support for affinity is removed
 	AffinityAnnotationKey string = "scheduler.alpha.kubernetes.io/affinity"
+
+	// TaintsAnnotationKey represents the key of taints data (json serialized)
+	// in the Annotations of a Node.
+	TaintsAnnotationKey string = "scheduler.alpha.kubernetes.io/taints"
 )
 
 // Tries to add a toleration to annotations list. Returns true if something was updated
@@ -373,6 +377,19 @@ func TolerationsTolerateTaintsWithFilter(tolerations []Toleration, taints []Tain
 	}
 
 	return true
+}
+
+// GetTaintsFromNodeAnnotations gets the json serialized taints data from Pod.Annotations
+// and converts it to the []Taint type in api.
+func GetTaintsFromNodeAnnotations(annotations map[string]string) ([]Taint, error) {
+	var taints []Taint
+	if len(annotations) > 0 && annotations[TaintsAnnotationKey] != "" {
+		err := json.Unmarshal([]byte(annotations[TaintsAnnotationKey]), &taints)
+		if err != nil {
+			return []Taint{}, err
+		}
+	}
+	return taints, nil
 }
 
 // DeleteTaintsByKey removes all the taints that have the same key to given taintKey

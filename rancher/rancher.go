@@ -608,6 +608,25 @@ func (r *CloudProvider) NodeAddresses(name types.NodeName) ([]api.NodeAddress, e
 	return addresses, nil
 }
 
+//NodeAddressesByProviderID returns the node addresses of an instances with the specified unique providerID
+// This method will not be called from the node that is requesting this ID. i.e. metadata service
+// and other local methods cannot be used here
+func (r *CloudProvider) NodeAddressesByProviderID(providerID string) ([]api.NodeAddress, error) {
+	host, err := r.hostGetById(providerID)
+	if err != nil {
+		return nil, err
+	}
+
+	addresses := []api.NodeAddress{}
+	for _, ip := range host.IPAddresses {
+		addresses = append(addresses, api.NodeAddress{Type: api.NodeExternalIP, Address: ip.Address})
+		addresses = append(addresses, api.NodeAddress{Type: api.NodeLegacyHostIP, Address: ip.Address})
+	}
+	addresses = append(addresses, api.NodeAddress{Type: api.NodeHostName, Address: host.RancherHost.Hostname})
+
+	return addresses, nil
+}
+
 // ExternalID returns the cloud provider ID of the specified instance (deprecated).
 func (r *CloudProvider) ExternalID(name types.NodeName) (string, error) {
 	glog.Infof("ExternalID [%s]", string(name))
@@ -634,6 +653,18 @@ func (r *CloudProvider) InstanceType(name types.NodeName) (string, error) {
 	}
 
 	// Maybe do something smarter here
+	return "rancher", nil
+}
+
+// InstanceTypeByProviderID returns the cloudprovider instance type of the node with the specified unique providerID
+// This method will not be called from the node that is requesting this ID. i.e. metadata service
+// and other local methods cannot be used here
+func (r *CloudProvider) InstanceTypeByProviderID(providerID string) (string, error) {
+	_, err := r.hostGetById(providerID)
+	if err != nil {
+		return "", err
+	}
+
 	return "rancher", nil
 }
 
@@ -726,6 +757,34 @@ func (r *CloudProvider) hostGetOrFetchFromCache(name string) (*Host, error) {
 		}
 	}
 	r.addHostToCache(host)
+	return host, nil
+}
+
+func (r *CloudProvider) hostGetById(id string) (*Host, error) {
+	rancherHost, err := r.client.Host.ById(id)
+	if err != nil {
+		return nil, fmt.Errorf("Couldn't get host by Id [%s]. Error: %#v", id, err)
+	}
+
+	if rancherHost == nil {
+		return nil, fmt.Errorf("Coudln't get host by Id [%s]", id)
+	}
+
+	coll := &client.IpAddressCollection{}
+	err = r.client.GetLink(rancherHost.Resource, "ipAddresses", coll)
+	if err != nil {
+		return nil, fmt.Errorf("Error getting ip addresses for node [%s]. Error: %#v", id, err)
+	}
+
+	if len(coll.Data) == 0 {
+		return nil, cloudprovider.InstanceNotFound
+	}
+
+	host := &Host{
+		RancherHost: rancherHost,
+		IPAddresses: coll.Data,
+	}
+
 	return host, nil
 }
 
